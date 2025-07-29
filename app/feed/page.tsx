@@ -14,7 +14,7 @@ interface Vitrine {
   whatsapp: string
 }
 
-export default function FeedPage() {
+export default function HomePage() {
   const [vitrines, setVitrines] = useState<Vitrine[]>([])
 
   useEffect(() => {
