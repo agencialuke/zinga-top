@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 HEAD
 const nextConfig = {};
-=======
+
 const nextConfig = {
   images: {
     domains: ['vitrines-zinga-top.s3.us-east-2.amazonaws.com'],
