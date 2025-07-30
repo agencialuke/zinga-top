@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { collection, getDocs } from 'firebase/firestore'
+import { collection, onSnapshot, query } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 
 interface Vitrine {
@@ -19,32 +19,28 @@ export default function HomePage() {
   const [vitrines, setVitrines] = useState<Vitrine[]>([])
 
   useEffect(() => {
-    const fetchVitrines = async () => {
-      try {
-        const snapshot = await getDocs(collection(db, 'vitrines'))
-        const data = snapshot.docs
-          .map(doc => {
-            const d = doc.data()
-            // Verifica se slug existe
-            if (!d.slug) return null
-            return {
-              id: doc.id,
-              nome: d.nome || '',
-              descricao: d.descricao || '',
-              urlImagem: d.urlImagem || '',
-              whatsapp: d.whatsapp || '',
-              slug: d.slug,
-            }
-          })
-          .filter(Boolean) as Vitrine[]
+    const q = query(collection(db, 'vitrines'))
 
-        setVitrines(data)
-      } catch (error) {
-        console.error('Erro ao buscar vitrines:', error)
-      }
-    }
+    const unsubscribe = onSnapshot(q, snapshot => {
+      const data = snapshot.docs
+        .map(doc => {
+          const d = doc.data()
+          if (!d.slug) return null
+          return {
+            id: doc.id,
+            nome: d.nome || '',
+            descricao: d.descricao || '',
+            urlImagem: d.urlImagem || '',
+            whatsapp: d.whatsapp || '',
+            slug: d.slug,
+          }
+        })
+        .filter(Boolean) as Vitrine[]
 
-    fetchVitrines()
+      setVitrines(data)
+    })
+
+    return () => unsubscribe()
   }, [])
 
   return (
@@ -60,15 +56,15 @@ export default function HomePage() {
           >
             <div className="w-full h-48 relative">
               <Image
-                src={loja.urlImagem?.trim() || '/placeholder.png'}
+                src={
+                  loja.urlImagem?.trim().startsWith('http')
+                    ? loja.urlImagem.trim()
+                    : '/placeholder.png'
+                }
                 alt={loja.nome}
                 fill
                 className="object-cover"
                 sizes="(max-width: 768px) 100vw, 33vw"
-                onError={(e) => {
-                  const target = e.currentTarget as HTMLImageElement
-                  target.src = '/placeholder.png'
-                }}
               />
             </div>
 

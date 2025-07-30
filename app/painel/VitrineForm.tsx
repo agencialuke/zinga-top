@@ -1,212 +1,128 @@
 'use client'
 
-import { useEffect, useState, ChangeEvent, FormEvent } from 'react'
-import { addDoc, collection, doc, getDoc, updateDoc } from 'firebase/firestore'
-import { db, auth } from '@/lib/firebase'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { db } from '@/lib/firebase'
+import { collection, addDoc } from 'firebase/firestore'
+import { useAuthState } from 'react-firebase-hooks/auth'
+import { auth } from '@/lib/firebase'
+import { uploadFileToS3 } from '@/lib/s3'
 import slugify from 'slugify'
-import Image from 'next/image'
-import { onAuthStateChanged } from 'firebase/auth'
 
 interface Props {
-  vitrineAtual?: VitrineData & { id: string }
-  aoSalvar?: () => void
+  onNovaVitrine?: () => void
 }
 
-interface VitrineData {
-  nome: string
-  descricao: string
-  whatsapp: string
-  urlImagem: string
-  slug: string
-}
-
-export default function VitrineForm({ vitrineAtual, aoSalvar }: Props) {
+export default function VitrineForm({ onNovaVitrine }: Props) {
+  const [nome, setNome] = useState('')
+  const [descricao, setDescricao] = useState('')
+  const [whatsapp, setWhatsapp] = useState('')
+  const [imagem, setImagem] = useState<File | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+  const [erro, setErro] = useState('')
+  const [carregando, setCarregando] = useState(false)
+  const [user] = useAuthState(auth)
   const router = useRouter()
 
-  const [form, setForm] = useState<Omit<VitrineData, 'slug'>>({
-    nome: '',
-    descricao: '',
-    whatsapp: '',
-    urlImagem: '',
-  })
-  const [preview, setPreview] = useState<string | null>(null)
-  const [imagemFile, setImagemFile] = useState<File | null>(null)
-  const [usuarioId, setUsuarioId] = useState<string | null>(null)
-  const [mensagem, setMensagem] = useState<string | null>(null)
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUsuarioId(user.uid)
-      } else {
-        router.push('/login')
-      }
-    })
-    return () => unsub()
-  }, [])
-
-  useEffect(() => {
-    if (vitrineAtual) {
-      setForm({
-        nome: vitrineAtual.nome,
-        descricao: vitrineAtual.descricao,
-        whatsapp: vitrineAtual.whatsapp,
-        urlImagem: vitrineAtual.urlImagem,
-      })
-      setPreview(vitrineAtual.urlImagem)
-    } else {
-      // Reset quando sai do modo edição
-      setForm({
-        nome: '',
-        descricao: '',
-        whatsapp: '',
-        urlImagem: '',
-      })
-      setPreview(null)
-      setImagemFile(null)
-    }
-  }, [vitrineAtual])
-
-  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
-  }
-
-  const handleImagemChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleImagemChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    setImagem(file || null)
     if (file) {
-      setImagemFile(file)
       setPreview(URL.createObjectURL(file))
     }
   }
 
-  const uploadImagemParaS3 = async (file: File): Promise<string> => {
-    const fileName = `${Date.now()}-${file.name}`
-    const fileType = file.type
-
-    const res = await fetch('/api/upload-url', {
-      method: 'POST',
-      body: JSON.stringify({ fileName, fileType }),
-      headers: { 'Content-Type': 'application/json' },
-    })
-
-    const data = await res.json()
-    const { url } = data
-
-    await fetch(url, {
-      method: 'PUT',
-      body: file,
-      headers: { 'Content-Type': fileType },
-    })
-
-    return url.split('?')[0] // Remove query params
-  }
-
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setErro('')
 
-    if (!usuarioId) return
-
-    let urlImagemFinal = form.urlImagem
-    if (imagemFile) {
-      urlImagemFinal = await uploadImagemParaS3(imagemFile)
+    if (!nome || !descricao || !whatsapp || !imagem || !user) {
+      setErro('Preencha todos os campos e selecione uma imagem.')
+      return
     }
 
-    const slug = slugify(form.nome, { lower: true, strict: true })
+    setCarregando(true)
 
-    const dados: VitrineData & { usuarioId: string } = {
-      nome: form.nome,
-      descricao: form.descricao,
-      whatsapp: form.whatsapp,
-      urlImagem: urlImagemFinal,
-      slug,
-      usuarioId,
-    }
+    try {
+      const urlImagem = await uploadFileToS3(imagem)
+      const slug = slugify(nome, { lower: true, strict: true })
 
-    if (vitrineAtual) {
-      const ref = doc(db, 'vitrines', vitrineAtual.id)
-      await updateDoc(ref, dados)
-      setMensagem('Vitrine atualizada com sucesso!')
-    } else {
-      await addDoc(collection(db, 'vitrines'), dados)
-      setMensagem('Vitrine criada com sucesso!')
-    }
-
-    if (aoSalvar) aoSalvar()
-    router.refresh()
-
-    // Reset formulário somente ao criar nova vitrine
-    if (!vitrineAtual) {
-      setForm({
-        nome: '',
-        descricao: '',
-        whatsapp: '',
-        urlImagem: '',
+      await addDoc(collection(db, 'vitrines'), {
+        nome,
+        descricao,
+        whatsapp,
+        urlImagem,
+        slug,
+        usuarioId: user.uid,
       })
-      setImagemFile(null)
-      setPreview(null)
-    }
 
-    // Limpar mensagem após 4s
-    setTimeout(() => setMensagem(null), 4000)
+      // Limpar campos
+      setNome('')
+      setDescricao('')
+      setWhatsapp('')
+      setImagem(null)
+      setPreview(null)
+
+      // Chamar callback ou redirecionar
+      if (onNovaVitrine) {
+        onNovaVitrine()
+      } else {
+        router.push('/')
+      }
+    } catch (err) {
+      console.error('Erro ao criar vitrine:', err)
+      setErro('Erro ao enviar imagem. Tente novamente.')
+    } finally {
+      setCarregando(false)
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 max-w-xl mx-auto p-4 bg-white rounded shadow">
-      {mensagem && (
-        <div className="bg-green-100 text-green-700 px-4 py-2 rounded shadow text-sm">
-          {mensagem}
-        </div>
-      )}
+    <form onSubmit={handleSubmit} className="max-w-xl mx-auto space-y-4 mb-10">
+      <h2 className="text-xl font-bold text-center">Nova Vitrine</h2>
+
+      {erro && <p className="text-red-500 text-sm text-center">{erro}</p>}
 
       <input
         type="text"
-        name="nome"
-        placeholder="Nome da Loja"
-        value={form.nome}
-        onChange={handleChange}
-        className="w-full border rounded p-2"
-        required
+        placeholder="Nome da loja"
+        className="w-full border p-2 rounded"
+        value={nome}
+        onChange={e => setNome(e.target.value)}
       />
-
       <textarea
-        name="descricao"
         placeholder="Descrição"
-        value={form.descricao}
-        onChange={handleChange}
-        className="w-full border rounded p-2"
-        rows={3}
-        required
+        className="w-full border p-2 rounded"
+        value={descricao}
+        onChange={e => setDescricao(e.target.value)}
       />
-
-      <input
-        type="text"
-        name="whatsapp"
-        placeholder="Número WhatsApp"
-        value={form.whatsapp}
-        onChange={handleChange}
-        className="w-full border rounded p-2"
-        required
-      />
-
       <input
         type="file"
         accept="image/*"
+        className="w-full border p-2 rounded"
         onChange={handleImagemChange}
-        className="block w-full"
       />
-
       {preview && (
-        <div className="mt-4">
-          <Image src={preview} alt="Pré-visualização" width={300} height={200} className="rounded" />
-        </div>
+        <img
+          src={preview}
+          alt="Preview"
+          className="w-full h-48 object-cover rounded"
+        />
       )}
+      <input
+        type="text"
+        placeholder="WhatsApp (com DDD)"
+        className="w-full border p-2 rounded"
+        value={whatsapp}
+        onChange={e => setWhatsapp(e.target.value)}
+      />
 
       <button
         type="submit"
-        className="bg-purple-700 text-white px-4 py-2 rounded hover:bg-purple-800 transition"
+        disabled={carregando}
+        className="bg-purple-600 text-white w-full p-3 rounded hover:bg-purple-700"
       >
-        {vitrineAtual ? 'Atualizar Vitrine' : 'Criar Vitrine'}
+        {carregando ? 'Enviando...' : 'Criar Vitrine'}
       </button>
     </form>
   )
