@@ -13,7 +13,12 @@ interface Props {
   onNovaVitrine?: () => void
 }
 
-export default function VitrineForm({ onNovaVitrine }: Props) {
+export default function VitrineForm({
+  onCriado,
+  vitrineEditando,
+  limparEdicao
+}: Props) {
+
   const [nome, setNome] = useState('')
   const [descricao, setDescricao] = useState('')
   const [whatsapp, setWhatsapp] = useState('')
