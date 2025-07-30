@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, ChangeEvent, FormEvent } from 'react';
-import { uploadFileToS3, getDownloadUrlFromS3 } from '@/lib/s3'; // Certifique-se que estas funções existem
+import { uploadFileToS3, getDownloadUrlFromS3 } from '@/lib/s3';
 import { db } from '@/lib/firebase';
 import {
   collection,
@@ -26,6 +26,7 @@ export default function VitrineForm({
   const [descricao, setDescricao] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
 
   useEffect(() => {
@@ -33,17 +34,22 @@ export default function VitrineForm({
       setTitulo(vitrineAtual.nome);
       setDescricao(vitrineAtual.descricao);
       setWhatsapp(vitrineAtual.whatsapp);
+      setPreviewUrl(vitrineAtual.urlImagem || null);
     } else {
       setTitulo('');
       setDescricao('');
       setWhatsapp('');
       setSelectedFile(null);
+      setPreviewUrl(null);
     }
   }, [vitrineAtual]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setSelectedFile(file);
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
     }
   };
 
@@ -119,12 +125,35 @@ export default function VitrineForm({
         className="w-full border px-3 py-2 rounded"
       />
 
-      <input
-        type="file"
-        accept="image/*"
-        onChange={handleFileChange}
-        className="w-full"
-      />
+      {/* Imagem Preview e Seletor */}
+      <div className="space-y-2">
+        <label
+          htmlFor="fileInput"
+          className="inline-block bg-gray-100 text-gray-700 border border-gray-300 px-4 py-2 rounded cursor-pointer hover:bg-gray-200"
+        >
+          Escolher imagem
+        </label>
+        <input
+          id="fileInput"
+          type="file"
+          accept="image/*"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+        {selectedFile && (
+          <p className="text-sm text-gray-600">{selectedFile.name}</p>
+        )}
+        {previewUrl && (
+          <img
+            src={previewUrl}
+            alt="Preview"
+            className="w-32 h-32 object-cover rounded border"
+          />
+        )}
+        <p className="text-sm text-gray-500">
+          Selecione uma imagem que represente sua loja.
+        </p>
+      </div>
 
       <button
         type="submit"

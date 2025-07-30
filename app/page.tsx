@@ -61,7 +61,10 @@ export default function HomePage() {
 
             <div className="p-4">
               <h2 className="text-lg font-semibold text-gray-800">{loja.nome}</h2>
-              <p className="text-sm text-gray-600">{loja.descricao}</p>
+              <p className="text-sm text-gray-600">
+  {loja.descricao.length > 100 ? loja.descricao.slice(0, 100) + '...' : loja.descricao}
+</p>
+
 
               <div className="mt-3 flex justify-between items-center text-sm">
                 <span className="text-green-600 font-bold">WhatsApp</span>
