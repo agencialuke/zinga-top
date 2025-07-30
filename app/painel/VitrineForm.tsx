@@ -1,167 +1,213 @@
-'use client';
+'use client'
 
-import { useEffect, useState, ChangeEvent, FormEvent } from 'react';
-import { uploadFileToS3, getDownloadUrlFromS3 } from '@/lib/s3';
-import { db } from '@/lib/firebase';
-import {
-  collection,
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-} from 'firebase/firestore';
+import { useEffect, useState, ChangeEvent, FormEvent } from 'react'
+import { addDoc, collection, doc, getDoc, updateDoc } from 'firebase/firestore'
+import { db, auth } from '@/lib/firebase'
+import { useRouter } from 'next/navigation'
+import slugify from 'slugify'
+import Image from 'next/image'
+import { onAuthStateChanged } from 'firebase/auth'
 
-interface VitrineFormProps {
-  usuarioId: string | null;
-  vitrineAtual?: any;
-  aoSalvar: () => void;
+interface Props {
+  vitrineAtual?: VitrineData & { id: string }
+  aoSalvar?: () => void
 }
 
-export default function VitrineForm({
-  usuarioId,
-  vitrineAtual,
-  aoSalvar,
-}: VitrineFormProps) {
-  const [titulo, setTitulo] = useState('');
-  const [descricao, setDescricao] = useState('');
-  const [whatsapp, setWhatsapp] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [carregando, setCarregando] = useState(false);
+interface VitrineData {
+  nome: string
+  descricao: string
+  whatsapp: string
+  urlImagem: string
+  slug: string
+}
+
+export default function VitrineForm({ vitrineAtual, aoSalvar }: Props) {
+  const router = useRouter()
+
+  const [form, setForm] = useState<Omit<VitrineData, 'slug'>>({
+    nome: '',
+    descricao: '',
+    whatsapp: '',
+    urlImagem: '',
+  })
+  const [preview, setPreview] = useState<string | null>(null)
+  const [imagemFile, setImagemFile] = useState<File | null>(null)
+  const [usuarioId, setUsuarioId] = useState<string | null>(null)
+  const [mensagem, setMensagem] = useState<string | null>(null)
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUsuarioId(user.uid)
+      } else {
+        router.push('/login')
+      }
+    })
+    return () => unsub()
+  }, [])
 
   useEffect(() => {
     if (vitrineAtual) {
-      setTitulo(vitrineAtual.nome);
-      setDescricao(vitrineAtual.descricao);
-      setWhatsapp(vitrineAtual.whatsapp);
-      setPreviewUrl(vitrineAtual.urlImagem || null);
+      setForm({
+        nome: vitrineAtual.nome,
+        descricao: vitrineAtual.descricao,
+        whatsapp: vitrineAtual.whatsapp,
+        urlImagem: vitrineAtual.urlImagem,
+      })
+      setPreview(vitrineAtual.urlImagem)
     } else {
-      setTitulo('');
-      setDescricao('');
-      setWhatsapp('');
-      setSelectedFile(null);
-      setPreviewUrl(null);
+      // Reset quando sai do modo edição
+      setForm({
+        nome: '',
+        descricao: '',
+        whatsapp: '',
+        urlImagem: '',
+      })
+      setPreview(null)
+      setImagemFile(null)
     }
-  }, [vitrineAtual]);
+  }, [vitrineAtual])
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setSelectedFile(file);
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
+  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value })
+  }
+
+  const handleImagemChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setImagemFile(file)
+      setPreview(URL.createObjectURL(file))
     }
-  };
+  }
+
+  const uploadImagemParaS3 = async (file: File): Promise<string> => {
+    const fileName = `${Date.now()}-${file.name}`
+    const fileType = file.type
+
+    const res = await fetch('/api/upload-url', {
+      method: 'POST',
+      body: JSON.stringify({ fileName, fileType }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const data = await res.json()
+    const { url } = data
+
+    await fetch(url, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': fileType },
+    })
+
+    return url.split('?')[0] // Remove query params
+  }
 
   const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!usuarioId) return alert('Usuário não identificado.');
+    e.preventDefault()
 
-    setCarregando(true);
+    if (!usuarioId) return
 
-    try {
-      let imageUrl = vitrineAtual?.urlImagem || '';
-
-      if (selectedFile) {
-        const fileName = `${Date.now()}-${selectedFile.name}`;
-        await uploadFileToS3(selectedFile, fileName);
-        imageUrl = getDownloadUrlFromS3(fileName);
-      }
-
-      const dados = {
-        nome: titulo,
-        descricao,
-        whatsapp,
-        urlImagem: imageUrl,
-        usuarioId,
-        atualizadoEm: serverTimestamp(),
-      };
-
-      if (vitrineAtual) {
-        const ref = doc(db, 'vitrines', vitrineAtual.id);
-        await updateDoc(ref, dados);
-      } else {
-        const ref = collection(db, 'vitrines');
-        await addDoc(ref, {
-          ...dados,
-          criadoEm: serverTimestamp(),
-        });
-      }
-
-      aoSalvar();
-    } catch (err) {
-      console.error('Erro ao salvar vitrine:', err);
-      alert('Erro ao salvar vitrine');
-    } finally {
-      setCarregando(false);
+    let urlImagemFinal = form.urlImagem
+    if (imagemFile) {
+      urlImagemFinal = await uploadImagemParaS3(imagemFile)
     }
-  };
+
+    const slug = slugify(form.nome, { lower: true, strict: true })
+
+    const dados: VitrineData & { usuarioId: string } = {
+      nome: form.nome,
+      descricao: form.descricao,
+      whatsapp: form.whatsapp,
+      urlImagem: urlImagemFinal,
+      slug,
+      usuarioId,
+    }
+
+    if (vitrineAtual) {
+      const ref = doc(db, 'vitrines', vitrineAtual.id)
+      await updateDoc(ref, dados)
+      setMensagem('Vitrine atualizada com sucesso!')
+    } else {
+      await addDoc(collection(db, 'vitrines'), dados)
+      setMensagem('Vitrine criada com sucesso!')
+    }
+
+    if (aoSalvar) aoSalvar()
+    router.refresh()
+
+    // Reset formulário somente ao criar nova vitrine
+    if (!vitrineAtual) {
+      setForm({
+        nome: '',
+        descricao: '',
+        whatsapp: '',
+        urlImagem: '',
+      })
+      setImagemFile(null)
+      setPreview(null)
+    }
+
+    // Limpar mensagem após 4s
+    setTimeout(() => setMensagem(null), 4000)
+  }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4 max-w-xl mx-auto p-4 bg-white rounded shadow">
+      {mensagem && (
+        <div className="bg-green-100 text-green-700 px-4 py-2 rounded shadow text-sm">
+          {mensagem}
+        </div>
+      )}
+
       <input
         type="text"
-        placeholder="Título da vitrine"
-        value={titulo}
-        onChange={(e) => setTitulo(e.target.value)}
+        name="nome"
+        placeholder="Nome da Loja"
+        value={form.nome}
+        onChange={handleChange}
+        className="w-full border rounded p-2"
         required
-        className="w-full border px-3 py-2 rounded"
       />
 
       <textarea
+        name="descricao"
         placeholder="Descrição"
-        value={descricao}
-        onChange={(e) => setDescricao(e.target.value)}
+        value={form.descricao}
+        onChange={handleChange}
+        className="w-full border rounded p-2"
+        rows={3}
         required
-        className="w-full border px-3 py-2 rounded"
       />
 
       <input
         type="text"
-        placeholder="WhatsApp com DDD"
-        value={whatsapp}
-        onChange={(e) => setWhatsapp(e.target.value)}
+        name="whatsapp"
+        placeholder="Número WhatsApp"
+        value={form.whatsapp}
+        onChange={handleChange}
+        className="w-full border rounded p-2"
         required
-        className="w-full border px-3 py-2 rounded"
       />
 
-      {/* Imagem Preview e Seletor */}
-      <div className="space-y-2">
-        <label
-          htmlFor="fileInput"
-          className="inline-block bg-gray-100 text-gray-700 border border-gray-300 px-4 py-2 rounded cursor-pointer hover:bg-gray-200"
-        >
-          Escolher imagem
-        </label>
-        <input
-          id="fileInput"
-          type="file"
-          accept="image/*"
-          onChange={handleFileChange}
-          className="hidden"
-        />
-        {selectedFile && (
-          <p className="text-sm text-gray-600">{selectedFile.name}</p>
-        )}
-        {previewUrl && (
-          <img
-            src={previewUrl}
-            alt="Preview"
-            className="w-32 h-32 object-cover rounded border"
-          />
-        )}
-        <p className="text-sm text-gray-500">
-          Selecione uma imagem que represente sua loja.
-        </p>
-      </div>
+      <input
+        type="file"
+        accept="image/*"
+        onChange={handleImagemChange}
+        className="block w-full"
+      />
+
+      {preview && (
+        <div className="mt-4">
+          <Image src={preview} alt="Pré-visualização" width={300} height={200} className="rounded" />
+        </div>
+      )}
 
       <button
         type="submit"
-        disabled={carregando}
-        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+        className="bg-purple-700 text-white px-4 py-2 rounded hover:bg-purple-800 transition"
       >
-        {carregando ? 'Salvando...' : 'Salvar vitrine'}
+        {vitrineAtual ? 'Atualizar Vitrine' : 'Criar Vitrine'}
       </button>
     </form>
-  );
+  )
 }

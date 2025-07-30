@@ -12,6 +12,7 @@ interface Vitrine {
   descricao: string
   urlImagem: string
   whatsapp: string
+  slug: string
 }
 
 export default function HomePage() {
@@ -21,10 +22,22 @@ export default function HomePage() {
     const fetchVitrines = async () => {
       try {
         const snapshot = await getDocs(collection(db, 'vitrines'))
-        const data = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Vitrine[]
+        const data = snapshot.docs
+          .map(doc => {
+            const d = doc.data()
+            // Verifica se slug existe
+            if (!d.slug) return null
+            return {
+              id: doc.id,
+              nome: d.nome || '',
+              descricao: d.descricao || '',
+              urlImagem: d.urlImagem || '',
+              whatsapp: d.whatsapp || '',
+              slug: d.slug,
+            }
+          })
+          .filter(Boolean) as Vitrine[]
+
         setVitrines(data)
       } catch (error) {
         console.error('Erro ao buscar vitrines:', error)
@@ -42,7 +55,7 @@ export default function HomePage() {
         {vitrines.map(loja => (
           <Link
             key={loja.id}
-            href={`/vitrine/${loja.id}`}
+            href={`/vitrine/${loja.slug}`}
             className="block bg-white rounded-xl shadow hover:shadow-lg transition overflow-hidden border"
           >
             <div className="w-full h-48 relative">
@@ -62,9 +75,10 @@ export default function HomePage() {
             <div className="p-4">
               <h2 className="text-lg font-semibold text-gray-800">{loja.nome}</h2>
               <p className="text-sm text-gray-600">
-  {loja.descricao.length > 100 ? loja.descricao.slice(0, 100) + '...' : loja.descricao}
-</p>
-
+                {loja.descricao.length > 100
+                  ? loja.descricao.slice(0, 100) + '...'
+                  : loja.descricao}
+              </p>
 
               <div className="mt-3 flex justify-between items-center text-sm">
                 <span className="text-green-600 font-bold">WhatsApp</span>
