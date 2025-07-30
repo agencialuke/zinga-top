@@ -10,119 +10,119 @@ import {
   where,
   deleteDoc,
   doc,
-  getDoc,
-  addDoc,
 } from 'firebase/firestore'
-import { onAuthStateChanged, signOut, User } from 'firebase/auth'
+import { onAuthStateChanged, signOut } from 'firebase/auth'
 import VitrineForm from './VitrineForm'
 
 interface Vitrine {
   id: string
   nome: string
   descricao: string
-  urlImagem: string
+  imagem: string
   whatsapp: string
   usuarioId: string
-  slug?: string
 }
 
 export default function PainelPage() {
   const router = useRouter()
+  const [usuarioId, setUsuarioId] = useState<string | null>(null)
   const [vitrines, setVitrines] = useState<Vitrine[]>([])
-  const [usuario, setUsuario] = useState<User | null>(null)
   const [editando, setEditando] = useState<Vitrine | null>(null)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async user => {
-      if (!user) {
+    const unsubscribe = onAuthStateChanged(auth, usuario => {
+      if (usuario) {
+        setUsuarioId(usuario.uid)
+      } else {
         router.push('/login')
-        return
       }
-
-      setUsuario(user)
-
-      const q = query(collection(db, 'vitrines'), where('usuarioId', '==', user.uid))
-      const snapshot = await getDocs(q)
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Vitrine[]
-
-      setVitrines(data)
     })
-
     return () => unsubscribe()
   }, [router])
+
+  const carregarVitrines = async () => {
+    if (!usuarioId) return
+    const q = query(collection(db, 'vitrines'), where('usuarioId', '==', usuarioId))
+    const snapshot = await getDocs(q)
+    const data = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Vitrine[]
+    setVitrines(data)
+  }
+
+  useEffect(() => {
+    if (usuarioId) {
+      carregarVitrines()
+    }
+  }, [usuarioId])
+
+  const handleExcluir = async (id: string) => {
+    if (!confirm('Deseja excluir esta vitrine?')) return
+    await deleteDoc(doc(db, 'vitrines', id))
+    await carregarVitrines()
+  }
 
   const handleLogout = async () => {
     await signOut(auth)
     router.push('/login')
   }
 
-  const handleAtualizarLista = async () => {
-    if (!usuario) return
-    const q = query(collection(db, 'vitrines'), where('usuarioId', '==', usuario.uid))
-    const snapshot = await getDocs(q)
-    const data = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    })) as Vitrine[]
-
-    setVitrines(data)
-  }
-
   return (
-    <div className="p-4 max-w-3xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-purple-700">Painel do Lojista</h1>
-        {usuario && (
-          <div className="text-sm text-gray-700">
-            Usuário logado: <strong>Gratuito</strong>
-            <button onClick={handleLogout} className="ml-4 text-red-600 underline">
-              Sair
-            </button>
-          </div>
-        )}
+    <div className="p-4 max-w-4xl mx-auto">
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">Painel do Lojista</h1>
+        <button
+          onClick={handleLogout}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        >
+          Sair
+        </button>
       </div>
 
-      <VitrineForm
-        
-        onCriado={handleAtualizarLista}
-        vitrineEditando={editando}
-        limparEdicao={() => setEditando(null)}
-      />
+      {usuarioId && (
+        <VitrineForm
+          usuarioId={usuarioId}
+          onCriado={carregarVitrines}
+          vitrineEditando={editando}
+          limparEdicao={() => setEditando(null)}
+        />
+      )}
 
-      <div className="mt-10 grid sm:grid-cols-2 gap-6">
-        {vitrines.map(vitrine => (
-          <div key={vitrine.id} className="border rounded-xl shadow p-3">
-            <img
-              src={vitrine.urlImagem}
-              alt={vitrine.nome}
-              className="w-full h-48 object-cover rounded"
-            />
-            <h2 className="text-lg font-bold mt-2">{vitrine.nome}</h2>
-            <p className="text-sm text-gray-600">{vitrine.descricao}</p>
+      <h2 className="text-lg font-semibold mb-2">Minhas Vitrines</h2>
 
-            <div className="flex justify-between mt-3">
-              <button
-                onClick={() => setEditando(vitrine)}
-                className="bg-blue-600 text-white px-3 py-1 rounded text-sm"
-              >
-                Editar
-              </button>
-              <button
-                onClick={async () => {
-                  await deleteDoc(doc(db, 'vitrines', vitrine.id))
-                  handleAtualizarLista()
-                }}
-                className="bg-red-600 text-white px-3 py-1 rounded text-sm"
-              >
-                Deletar
-              </button>
+      {vitrines.length === 0 ? (
+        <p>Nenhuma vitrine cadastrada ainda.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {vitrines.map(vitrine => (
+            <div key={vitrine.id} className="border rounded p-4 shadow-sm">
+              <img
+                src={vitrine.imagem}
+                alt={vitrine.nome}
+                className="w-full h-48 object-cover rounded mb-2"
+              />
+              <h3 className="text-xl font-semibold">{vitrine.nome}</h3>
+              <p className="text-gray-700 mb-2">{vitrine.descricao}</p>
+              <p className="text-sm text-gray-500 mb-2">WhatsApp: {vitrine.whatsapp}</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditando(vitrine)}
+                  className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                >
+                  Editar
+                </button>
+                <button
+                  onClick={() => handleExcluir(vitrine.id)}
+                  className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+                >
+                  Excluir
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
