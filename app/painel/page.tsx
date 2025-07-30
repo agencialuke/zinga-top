@@ -86,7 +86,7 @@ export default function PainelPage() {
       </div>
 
       <VitrineForm
-        usuarioId={usuario?.uid || ''}
+        
         onCriado={handleAtualizarLista}
         vitrineEditando={editando}
         limparEdicao={() => setEditando(null)}
