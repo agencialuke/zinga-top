@@ -1,12 +1,9 @@
-// app/vitrine/[slug]/page.tsx
-
 import type { Metadata } from 'next'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import Image from 'next/image'
 import Link from 'next/link'
 
-// 🔁 Permite SSR dinâmico, útil para vitrines novas
 export const dynamic = 'force-dynamic'
 
 interface Vitrine {
@@ -17,7 +14,7 @@ interface Vitrine {
   slug: string
 }
 
-// 🔁 (Opcional) Geração de rotas estáticas durante o build — útil se quiser SSG
+// 🔁 Geração de rotas estáticas (opcional)
 export async function generateStaticParams() {
   try {
     const snapshot = await getDocs(collection(db, 'vitrines'))
@@ -36,15 +33,23 @@ export async function generateStaticParams() {
   }
 }
 
-// 🧠 SEO dinâmico baseado no slug
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
+// ✅ Correção aqui: props é uma Promise
+export async function generateMetadata(
+  props: Promise<{ params: { slug: string } }>
+): Promise<Metadata> {
+  const { params } = await props
+  const vitrine = await getVitrineBySlug(params.slug)
+
   return {
-    title: `Vitrine - ${params.slug} | Zinga.top`,
-    description: `Confira a vitrine '${params.slug}' na plataforma Zinga.top.`,
+    title: vitrine?.nome
+      ? `Vitrine - ${vitrine.nome} | Zinga.top`
+      : `Vitrine não encontrada | Zinga.top`,
+    description: vitrine?.descricao
+      ? vitrine.descricao
+      : `Confira a vitrine na plataforma Zinga.top.`,
   }
 }
 
-// 🔍 Busca vitrine pelo slug
 async function getVitrineBySlug(slug: string): Promise<Vitrine | null> {
   const q = query(collection(db, 'vitrines'), where('slug', '==', slug))
   const snapshot = await getDocs(q)
@@ -52,8 +57,11 @@ async function getVitrineBySlug(slug: string): Promise<Vitrine | null> {
   return snapshot.docs[0].data() as Vitrine
 }
 
-// 🖼️ Página principal
-export default async function VitrinePage({ params }: { params: { slug: string } }) {
+export default async function VitrinePage({
+  params,
+}: {
+  params: { slug: string }
+}) {
   const loja = await getVitrineBySlug(params.slug)
 
   if (!loja) {
